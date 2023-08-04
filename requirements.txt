@@ -1,0 +1,4 @@
+pandas[excel]
+# for CPU torch version
+-i https://download.pytorch.org/whl/cpu
+torch
