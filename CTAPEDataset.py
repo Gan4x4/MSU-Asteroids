@@ -27,9 +27,8 @@ class CTAPEDataset(Dataset):
                 except Exception as e:
                     print(f"part {i} skipped because of :v{e}" )
                     continue
-
             print(list(self.items.keys()))
-            break
+
 
     def split(self, df):
         parts = []
