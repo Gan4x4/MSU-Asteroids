@@ -14,7 +14,7 @@ class CTAPEDataset(Dataset):
     # parts = []
     items = []
 
-    def __init__(self, path_to_xlsx,  path_to_filter, wl_filter = (0,5000)):
+    def __init__(self, path_to_xlsx,  path_to_filter, wl_filter = (0,5000), transform = None):
         # super().__init__()
         self.filter = self.load_filter(path_to_filter)
         xl = pd.ExcelFile(path_to_xlsx)
@@ -147,7 +147,8 @@ class CTAPEDataset(Dataset):
         s_id, a = self.items[n]
         a = a.astype(float)
         spectre = a[a[:, 0].argsort()]
-
+        if self.transform:
+            spectre = self.transform(spectre)
         return s_id, spectre
 
     def classes(self):
