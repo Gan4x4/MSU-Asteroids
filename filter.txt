@@ -1,0 +1,42 @@
+DIA101
+GRP101
+GRP102, GRP_102
+GRP103
+GRP104
+GRP105
+GRP106
+GRP107
+LCA101
+SYN007
+Al foil
+Penny tails
+Penny Heads
+Canadian penny
+Al foil 1
+Al foil 2
+Al foil 3
+Al foil 4
+Al foil 5
+Al foil 6
+Al block
+Al plate
+Al disk 1
+Al disk 2
+Al disk 3
+ZNS001
+DIA211
+DIA203
+DIA205
+DIA209
+DIA210
+DIA201
+DIA204
+DIA206
+DIA207
+DIA200
+DIA208
+MAG200
+MAG202
+HEM200
+ILM201
+Carbon Black
