@@ -23,12 +23,14 @@ class CTAPEDataset(Dataset):
             parts = self.split(df)
             for i, p in enumerate(parts):
                 try:
-                    self.parse(p)
+                    if not p.empty:
+                        self.parse(p)
                 except Exception as e:
                     print(f"part {i} skipped because of :v{e}")
                     continue
             print(self.classes())
             # print(list(self.items.keys()))
+        xl.close()
 
     def split(self, df):
         parts = []
@@ -47,21 +49,16 @@ class CTAPEDataset(Dataset):
         material_id_row = self.get_sample_id_row(df, keywords)
         # psf_file_row = self.get_ps_file_row_num(keywords)
         wl_row_num = self.get_wavelen_row_num(keywords)
-        wl = df.iloc[wl_row_num + 1:, 0]
+        wl = self.extract_values_to_first_empty_line(df.iloc[wl_row_num + 1:, 0])
         for i, s_id in enumerate(material_id_row.iloc[1:]):
             # psf_file_name = psf_file_row.iloc[1+i]
             s_id = str(s_id).strip()  # + "_" + str(psf_file_name).strip()
             if len(s_id) and s_id != 'nan':
                 # assert not s_id in self.items, s_id
-                # s_id_str = self.find_keyphrase(keys.keys(),SAMPLE_ID)
-                values = df.iloc[wl_row_num + 1:, i + 1]
+                values = self.extract_values_to_first_empty_line(df.iloc[wl_row_num + 1:, i + 1])
                 spectre = pd.concat([wl, values], axis=1)
-                spectre = spectre.dropna(how='all')
-                # if s_id in self.items:
-                #    x = np.concatenate([spectre.to_numpy(), self.items[s_id]], axis=0)
-                #    self.items[s_id] = x
-                # else:
-                self.items.append([s_id, spectre.to_numpy()])
+                spectre = self.spectre2array(spectre)
+                self.items.append([s_id, spectre])
 
     def get_keywords(self, df):
         out = {}
@@ -94,6 +91,22 @@ class CTAPEDataset(Dataset):
         x = df.iloc[n]
         return x
 
+    def extract_values_to_first_empty_line(self, values_col):
+        """
+        Spectre row can contain trash, but after some empty rows
+        so we truncate WL values to first empty row
+        :return: PandasDataframe with non-empty rows
+        """
+        empty_places = np.where(pd.isnull(values_col))
+        index_of_first_empty_row = empty_places[0][0]
+        values = values_col.iloc[:index_of_first_empty_row]
+        return values
+
+    def spectre2array(self,spectre):
+        spectre = spectre.dropna(how='all')
+        spectre = spectre.to_numpy().astype(float)
+        return spectre
+
     def find_keyphrase(self, arr, keyphrase_synonims):
         intersection = list(set(keyphrase_synonims) & set(arr))
         if len(intersection) == 0:
@@ -105,6 +118,7 @@ class CTAPEDataset(Dataset):
 
     def __getitem__(self, n):
         s_id, a = self.items[n]
+        a = a.astype(float)
         spectre = a[a[:, 0].argsort()]
 
         return s_id, spectre
