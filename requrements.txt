@@ -1,1 +1,0 @@
-/home/gan/Code/MSU/Students/Asteroids/requrements.txt

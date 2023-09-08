@@ -14,8 +14,9 @@ class CTAPEDataset(Dataset):
     # parts = []
     items = []
 
-    def __init__(self, path_to_xlsx):
+    def __init__(self, path_to_xlsx,  path_to_filter, wl_filter = (0,5000)):
         # super().__init__()
+        self.filter = self.load_filter(path_to_filter)
         xl = pd.ExcelFile(path_to_xlsx)
         for sheet_name in xl.sheet_names:
             print(sheet_name)
@@ -31,6 +32,13 @@ class CTAPEDataset(Dataset):
             print(self.classes())
             # print(list(self.items.keys()))
         xl.close()
+    def load_filter(self,filename):
+        filter = []
+        with open(filename,"r") as file:
+            for line in file:
+                filter.append(line.strip().split(","))
+        return filter
+
 
     def split(self, df):
         parts = []
@@ -50,10 +58,12 @@ class CTAPEDataset(Dataset):
         # psf_file_row = self.get_ps_file_row_num(keywords)
         wl_row_num = self.get_wavelen_row_num(keywords)
         wl = self.extract_values_to_first_empty_line(df.iloc[wl_row_num + 1:, 0])
+        if not self.is_wl_accepted(wl):
+            raise ValueError("Wavelength interval must include 550 nm length")
         for i, s_id in enumerate(material_id_row.iloc[1:]):
             # psf_file_name = psf_file_row.iloc[1+i]
             s_id = str(s_id).strip()  # + "_" + str(psf_file_name).strip()
-            if len(s_id) and s_id != 'nan':
+            if self.is_id_accepted(s_id):
                 # assert not s_id in self.items, s_id
                 values = self.extract_values_to_first_empty_line(df.iloc[wl_row_num + 1:, i + 1])
                 spectre = pd.concat([wl, values], axis=1)
@@ -91,6 +101,23 @@ class CTAPEDataset(Dataset):
         x = df.iloc[n]
         return x
 
+    def is_id_accepted(self,s_id):
+        if len(s_id) == 0 or s_id == 'nan':
+            return False
+        for synonyms in self.filter:
+            if s_id in synonyms:
+                return True
+        return False
+
+    def is_wl_accepted(self,wl):
+        """
+            Wavelength interval must include 550 nm length
+            otherwise it skipped
+        """
+        wl = wl.to_numpy().astype(float)
+        if wl.min() < 550 < wl.max():
+            return True
+        return False
     def extract_values_to_first_empty_line(self, values_col):
         """
         Spectre row can contain trash, but after some empty rows
