@@ -16,6 +16,7 @@ class CTAPEDataset(Dataset):
 
     def __init__(self, path_to_xlsx,  path_to_filter, wl_filter = (0,5000), transform = None):
         # super().__init__()
+        self.transform = transform
         self.filter = self.load_filter(path_to_filter)
         xl = pd.ExcelFile(path_to_xlsx)
         for sheet_name in xl.sheet_names:
