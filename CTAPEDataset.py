@@ -87,7 +87,7 @@ class CTAPEDataset(Dataset):
         wl_row_num = self.get_wavelen_row_num(keywords)
         wl = self.extract_values_to_first_empty_line(df.iloc[wl_row_num + 1:, 0])
         if not self.is_wl_accepted(wl):
-            raise ValueError("Wavelength interval must include 550 nm length")
+            raise ValueError(f"Wavelength interval must contain interval [{self.wl_flter[0]}, {self.wl_flter[1]}] nm ")
         for i, s_id in enumerate(material_id_row.iloc[1:]):
             s_id = str(s_id).strip()  # + "_" + str(psf_file_name).strip()
             if self.is_id_accepted(s_id):
@@ -183,7 +183,8 @@ class CTAPEDataset(Dataset):
         a = a.astype(float)
         spectre = a[a[:, 0].argsort()]
         spectre = self.crop_spectre(spectre)
-        return s_id, spectre
+        cls = self.sample_id_to_class(s_id)
+        return cls, spectre
 
     def crop_spectre(self, arr):
         cropped = arr[(self.wl_filter[0] <= arr[..., 0]) & (arr[..., 0] <= self.wl_filter[1])]
@@ -192,7 +193,7 @@ class CTAPEDataset(Dataset):
     def classes(self):
         x = set()
         for s_id, _ in self.items:
-            x.add(s_id)
+            x.add(self.sample_id_to_class(s_id))
         return x
 
 
