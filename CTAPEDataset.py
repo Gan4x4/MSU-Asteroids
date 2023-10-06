@@ -58,8 +58,6 @@ class CTAPEDataset(Dataset):
                 except Exception as e:
                     print(f"part {i} skipped because of :v{e}")
                     continue
-            print(self.classes())
-            # print(list(self.items.keys()))
         xl.close()
 
     def load_filter(self, filename):
@@ -193,6 +191,7 @@ class CTAPEDataset(Dataset):
         cropped = arr[(self.wl_filter[0] <= arr[..., 0]) & (arr[..., 0] <= self.wl_filter[1])]
         return cropped
 
+    @property
     def classes(self):
         x = set()
         for s_id, _ in self.items:
@@ -201,15 +200,27 @@ class CTAPEDataset(Dataset):
 
 
 class MultiFileDataset(ConcatDataset):
-    def __init__(self, path_to_xlsx_folder, path_to_elements_list, wl_filter=(350, 900)):
+    def __init__(self, path_to_xlsx_folder, path_to_elements_list, transform = None, wl_filter=(350, 900)):
         pattern = f"{path_to_xlsx_folder}/*.xlsx"
         files = glob(pattern)
+        self._transform = transform
         datasets = []
-        self.classes = []
+        self.classes = set()
         for f in files:
-            ds = CTAPEDataset(f, path_to_elements_list, wl_filter)
-            self.classes.append(ds.classes())
+            ds = CTAPEDataset(f, path_to_elements_list, transform = self._transform, wl_filter=wl_filter)
+            self.classes.update(ds.classes)
             datasets.append(ds)
 
         super().__init__(datasets)
-        self.classes = list(set(self.classes))
+
+
+    @property
+    def transform(self):
+        return self._transform
+
+    @transform.setter
+    def transform(self, value):
+        self._transform = value
+        for d in self.datasets:
+            d.transform = self._transform
+
