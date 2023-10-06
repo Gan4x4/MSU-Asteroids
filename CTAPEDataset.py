@@ -40,11 +40,12 @@ class CTAPEDataset(Dataset):
     # parts = []
     items = []
 
-    def __init__(self, path_to_xlsx, path_to_elements_list, wl_filter=(350, 900)):
+    def __init__(self, path_to_xlsx, path_to_elements_list, transform = None, wl_filter=(350, 900)):
         # super().__init__()
         # self.filter = self.load_filter(path_to_filter)
         self.class2id = load_dictionary(path_to_elements_list)
         self.wl_filter = wl_filter
+        self.transform = transform
         xl = pd.ExcelFile(path_to_xlsx)
         for sheet_name in xl.sheet_names:
             print(sheet_name)
@@ -184,6 +185,8 @@ class CTAPEDataset(Dataset):
         spectre = a[a[:, 0].argsort()]
         spectre = self.crop_spectre(spectre)
         cls = self.sample_id_to_class(s_id)
+        if self.transform:
+            spectre = self.transform(spectre)
         return cls, spectre
 
     def crop_spectre(self, arr):
@@ -202,8 +205,11 @@ class MultiFileDataset(ConcatDataset):
         pattern = f"{path_to_xlsx_folder}/*.xlsx"
         files = glob(pattern)
         datasets = []
+        self.classes = []
         for f in files:
             ds = CTAPEDataset(f, path_to_elements_list, wl_filter)
+            self.classes.append(ds.classes())
             datasets.append(ds)
-            print(f, len(ds))
+
         super().__init__(datasets)
+        self.classes = list(set(self.classes))
