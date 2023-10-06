@@ -182,8 +182,12 @@ class CTAPEDataset(Dataset):
         s_id, a = self.items[n]
         a = a.astype(float)
         spectre = a[a[:, 0].argsort()]
-
+        spectre = self.crop_spectre(spectre)
         return s_id, spectre
+
+    def crop_spectre(self, arr):
+        cropped = arr[(self.wl_filter[0] <= arr[..., 0]) & (arr[..., 0] <= self.wl_filter[1])]
+        return cropped
 
     def classes(self):
         x = set()
