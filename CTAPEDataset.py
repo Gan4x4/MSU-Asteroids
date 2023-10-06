@@ -193,12 +193,12 @@ class CTAPEDataset(Dataset):
 
 
 class MultiFileDataset(ConcatDataset):
-    def __init__(self, path_to_xlsx_folder, path_to_elements_list):
+    def __init__(self, path_to_xlsx_folder, path_to_elements_list, wl_filter=(350, 900)):
         pattern = f"{path_to_xlsx_folder}/*.xlsx"
         files = glob(pattern)
         datasets = []
         for f in files:
-            ds = CTAPEDataset(f, path_to_elements_list)
+            ds = CTAPEDataset(f, path_to_elements_list, wl_filter)
             datasets.append(ds)
             print(f, len(ds))
         super().__init__(datasets)
