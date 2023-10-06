@@ -2,6 +2,32 @@ from torch.utils.data import Dataset
 import pandas as pd
 import numpy as np
 from math import isnan
+from torch.utils.data import ConcatDataset
+from glob import glob
+
+
+def load_dictionary(path_to_xlsx):
+    class2id = {}
+    xl = pd.ExcelFile(path_to_xlsx)
+    for sheet_name in xl.sheet_names:
+        df = xl.parse(sheet_name)
+
+        for index, row in df.iterrows():
+            cls = row['Class']
+            if not isinstance(cls, str) or len(cls) < 1:
+                continue
+
+            sample_id = row['Sample ID']
+            if not isinstance(sample_id, str) or len(sample_id) < 1:
+                continue
+
+            if cls in class2id:
+                class2id[cls].add(sample_id)
+            else:
+                class2id[cls] = set([sample_id])
+
+    return class2id
+
 
 MATERIAL_ID = ["Sample ID", "Sample #"]
 WAVELENGTH = ["Wavelength (nm)", "Wavelength"]
@@ -14,10 +40,11 @@ class CTAPEDataset(Dataset):
     # parts = []
     items = []
 
-    def __init__(self, path_to_xlsx,  path_to_filter, wl_filter = (0,5000), transform = None):
+    def __init__(self, path_to_xlsx, path_to_elements_list, wl_filter=(350, 900)):
         # super().__init__()
-        self.transform = transform
-        self.filter = self.load_filter(path_to_filter)
+        # self.filter = self.load_filter(path_to_filter)
+        self.class2id = load_dictionary(path_to_elements_list)
+        self.wl_filter = wl_filter
         xl = pd.ExcelFile(path_to_xlsx)
         for sheet_name in xl.sheet_names:
             print(sheet_name)
@@ -33,13 +60,13 @@ class CTAPEDataset(Dataset):
             print(self.classes())
             # print(list(self.items.keys()))
         xl.close()
-    def load_filter(self,filename):
+
+    def load_filter(self, filename):
         filter = []
-        with open(filename,"r") as file:
+        with open(filename, "r") as file:
             for line in file:
                 filter.append(line.strip().split(","))
         return filter
-
 
     def split(self, df):
         parts = []
@@ -62,7 +89,6 @@ class CTAPEDataset(Dataset):
         if not self.is_wl_accepted(wl):
             raise ValueError("Wavelength interval must include 550 nm length")
         for i, s_id in enumerate(material_id_row.iloc[1:]):
-            # psf_file_name = psf_file_row.iloc[1+i]
             s_id = str(s_id).strip()  # + "_" + str(psf_file_name).strip()
             if self.is_id_accepted(s_id):
                 # assert not s_id in self.items, s_id
@@ -102,23 +128,31 @@ class CTAPEDataset(Dataset):
         x = df.iloc[n]
         return x
 
-    def is_id_accepted(self,s_id):
+    def is_id_accepted(self, s_id):
+        s_id = str(s_id).strip()
         if len(s_id) == 0 or s_id == 'nan':
             return False
-        for synonyms in self.filter:
-            if s_id in synonyms:
-                return True
-        return False
+        if self.sample_id_to_class(s_id) is None:
+            return False
+        return True
 
-    def is_wl_accepted(self,wl):
+    def sample_id_to_class(self, raw_sample_id):
+        s_id = str(raw_sample_id).strip()
+        for key, values in self.class2id.items():
+            if s_id in values:
+                return key
+        return None
+
+    def is_wl_accepted(self, wl):
         """
             Wavelength interval must include 550 nm length
             otherwise it skipped
         """
         wl = wl.to_numpy().astype(float)
-        if wl.min() < 550 < wl.max():
+        if wl.min() <= self.wl_filter[0] and self.wl_filter[1] <= wl.max():
             return True
         return False
+
     def extract_values_to_first_empty_line(self, values_col):
         """
         Spectre row can contain trash, but after some empty rows
@@ -130,7 +164,7 @@ class CTAPEDataset(Dataset):
         values = values_col.iloc[:index_of_first_empty_row]
         return values
 
-    def spectre2array(self,spectre):
+    def spectre2array(self, spectre):
         spectre = spectre.dropna(how='all')
         spectre = spectre.to_numpy().astype(float)
         return spectre
@@ -148,8 +182,7 @@ class CTAPEDataset(Dataset):
         s_id, a = self.items[n]
         a = a.astype(float)
         spectre = a[a[:, 0].argsort()]
-        if self.transform:
-            spectre = self.transform(spectre)
+
         return s_id, spectre
 
     def classes(self):
@@ -157,3 +190,15 @@ class CTAPEDataset(Dataset):
         for s_id, _ in self.items:
             x.add(s_id)
         return x
+
+
+class MultiFileDataset(ConcatDataset):
+    def __init__(self, path_to_xlsx_folder, path_to_elements_list):
+        pattern = f"{path_to_xlsx_folder}/*.xlsx"
+        files = glob(pattern)
+        datasets = []
+        for f in files:
+            ds = CTAPEDataset(f, path_to_elements_list)
+            datasets.append(ds)
+            print(f, len(ds))
+        super().__init__(datasets)
