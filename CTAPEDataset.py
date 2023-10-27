@@ -4,9 +4,137 @@ import numpy as np
 from math import isnan
 from torch.utils.data import ConcatDataset
 from glob import glob
+import re
+import math
+from tqdm import tqdm
+import os
+
+
+class Sample(object):
+
+    @staticmethod
+    def create_by_row(row):
+        sample_id = row['Sample ID']
+        if not isinstance(sample_id, str) or len(sample_id) < 1:
+            return None
+        inst = Sample(sample_id)
+        for name in row.index:
+            t = re.match(r"^Class([0-9])?$", name)
+            if t is None:
+                # skip sheets without Class in title
+                continue
+            for num in t.groups():
+                if num is None:
+                    # clear substance
+                    proportion = 100.0
+                    cls = row['Class']
+                else:
+                    cls = row[f"Class{num}"]
+                    proportion = row[f"W{num},%"]
+                if not isinstance(cls, str) or len(cls) < 1 :
+                    break
+                else:
+                    inst.elements.append(cls)
+                    inst.proportions.append(float(proportion))
+
+        if len(inst.elements):
+            #print(inst.id, "cls == ", cls, inst.elements)
+            return inst
+        return None
+
+    def __init__(self, id):
+        self.elements = []
+        self.proportions = []
+        self.id = str(id)
+
+    def validate(self):
+        assert len(self.elements) == len(self.proportions)
+        summ = sum(self.proportions)
+        if  summ > 101 or summ < 99:
+            raise ValueError(f"Invalid proportions {str(self)}")
+        #assert sum(self.proportions) == 100 ,proportions
+
+    def is_mixture(self):
+        return len(self.elements) > 1
+
+    def __str__(self):
+        out = self.id
+        for i, e in enumerate(self.elements):
+            out = out + f" {e}:{self.proportions[i]} "
+        return out
+
+class SamplesLibrary(object):
+    def __init__(self, path_to_xlsx,verbose = False):
+        self.id2sample = {}
+        xl = pd.ExcelFile(path_to_xlsx)
+        pbar = tqdm(xl.sheet_names)
+        skipped = []
+        for sheet_name in pbar:
+            pbar.set_description(sheet_name)
+            #print(sheet_name)
+            df = xl.parse(sheet_name)
+            for index, row in df.iterrows():
+                sample = Sample.create_by_row(row)
+                try:
+                    if sample:
+                        sample.validate()
+                        self.register(sample)
+                except ValueError as e:
+                    skipped.append(sample.id)
+                    if verbose:
+                        print(e)
+                    continue
+
+        xl.close()
+        pbar.set_description(f"Total {len(self.get_elements())} elements in {len(self.id2sample)} samples")
+        print("Skipped", skipped)
+
+
+    def register(self, sample):
+        if sample.id in self.id2sample:
+            #print("Duplicate id",sample.id, "skipped")
+            raise ValueError("Duplicate id",sample.id)
+        self.id2sample[sample.id] = sample
+
+    def has(self,sample_id):
+        return sample_id in self.id2sample
+
+    def get(self,sample_id):
+        if self.has(sample_id):
+            return self.id2sample[sample_id]
+        return None
+
+    def get_elements(self):
+        elements = set()
+        for key, s in self.id2sample.items():
+            elements = elements.union(set(s.elements))
+        return elements
 
 
 def load_dictionary(path_to_xlsx):
+    class2id = {}
+    xl = pd.ExcelFile(path_to_xlsx)
+    for sheet_name in xl.sheet_names:
+        df = xl.parse(sheet_name)
+
+        for index, row in df.iterrows():
+            cls = row['Class']
+            if not isinstance(cls, str) or len(cls) < 1:
+                continue
+
+            sample_id = row['Sample ID']
+            if not isinstance(sample_id, str) or len(sample_id) < 1:
+                continue
+
+            if cls in class2id:
+                class2id[cls].add(sample_id)
+            else:
+                class2id[cls] = set([sample_id])
+
+    return class2id
+
+
+def load_dictionary_old(path_to_xlsx):
     class2id = {}
     xl = pd.ExcelFile(path_to_xlsx)
     for sheet_name in xl.sheet_names:
@@ -40,10 +168,16 @@ class CTAPEDataset(Dataset):
     # parts = []
     items = []
 
-    def __init__(self, path_to_xlsx, path_to_elements_list, transform = None, wl_filter=(350, 900)):
+    def __init__(self, path_to_xlsx, elements_list, transform=None, wl_filter=(350, 900)):
         # super().__init__()
         # self.filter = self.load_filter(path_to_filter)
-        self.class2id = load_dictionary(path_to_elements_list)
+        if isinstance(elements_list, str):
+            #self.class2id = load_dictionary(path_to_elements_list)
+            elements_list = SamplesLibrary(elements_list)
+        if isinstance(elements_list, SamplesLibrary) :
+            self.samples_library = elements_list
+        else:
+            raise ValueError("Can't load list of all elements")
         self.wl_filter = wl_filter
         self.transform = transform
         xl = pd.ExcelFile(path_to_xlsx)
@@ -86,7 +220,7 @@ class CTAPEDataset(Dataset):
         wl_row_num = self.get_wavelen_row_num(keywords)
         wl = self.extract_values_to_first_empty_line(df.iloc[wl_row_num + 1:, 0])
         if not self.is_wl_accepted(wl):
-            raise ValueError(f"Wavelength interval must contain interval [{self.wl_flter[0]}, {self.wl_flter[1]}] nm ")
+            raise ValueError(f"Wavelength interval must include interval [{self.wl_filter[0]}, {self.wl_filter[1]}] nm ")
         for i, s_id in enumerate(material_id_row.iloc[1:]):
             s_id = str(s_id).strip()  # + "_" + str(psf_file_name).strip()
             if self.is_id_accepted(s_id):
@@ -131,16 +265,23 @@ class CTAPEDataset(Dataset):
         s_id = str(s_id).strip()
         if len(s_id) == 0 or s_id == 'nan':
             return False
-        if self.sample_id_to_class(s_id) is None:
-            return False
-        return True
+        if self.samples_library.has(s_id):
+            #print("Found", s_id)
+            return True
+        #print("Not found", s_id)
+        return False
+        #if self.sample_id_to_class(s_id) is None:
+        #    return False
+        #return True
 
-    def sample_id_to_class(self, raw_sample_id):
+    def sample_id_to_sample(self, raw_sample_id):
         s_id = str(raw_sample_id).strip()
-        for key, values in self.class2id.items():
-            if s_id in values:
-                return key
-        return None
+        return self.samples_library.get(s_id)
+        #
+        #for key, values in self.class2id.items():
+        #    if s_id in values:
+        #        return key
+        #return None
 
     def is_wl_accepted(self, wl):
         """
@@ -159,7 +300,11 @@ class CTAPEDataset(Dataset):
         :return: PandasDataframe with non-empty rows
         """
         empty_places = np.where(pd.isnull(values_col))
-        index_of_first_empty_row = empty_places[0][0]
+        if len(empty_places[0]) > 0:
+            index_of_first_empty_row = empty_places[0][0]
+        else:
+            # No empty lines
+            index_of_first_empty_row = len(values_col)
         values = values_col.iloc[:index_of_first_empty_row]
         return values
 
@@ -182,10 +327,10 @@ class CTAPEDataset(Dataset):
         a = a.astype(float)
         spectre = a[a[:, 0].argsort()]
         spectre = self.crop_spectre(spectre)
-        cls = self.sample_id_to_class(s_id)
+        sample = self.sample_id_to_sample(s_id)
         if self.transform:
             spectre = self.transform(spectre)
-        return cls, spectre
+        return sample, spectre
 
     def crop_spectre(self, arr):
         cropped = arr[(self.wl_filter[0] <= arr[..., 0]) & (arr[..., 0] <= self.wl_filter[1])]
@@ -194,25 +339,28 @@ class CTAPEDataset(Dataset):
     @property
     def classes(self):
         x = set()
-        for s_id, _ in self.items:
-            x.add(self.sample_id_to_class(s_id))
+        for sample_id, _ in self.items:
+            sample = self.sample_id_to_sample(sample_id)
+            x.update(set(sample.elements))
         return x
 
 
 class MultiFileDataset(ConcatDataset):
-    def __init__(self, path_to_xlsx_folder, path_to_elements_list, transform = None, wl_filter=(350, 900)):
+    def __init__(self, path_to_xlsx_folder, path_to_elements_list, transform=None, wl_filter=(350, 900)):
         pattern = f"{path_to_xlsx_folder}/*.xlsx"
         files = glob(pattern)
         self._transform = transform
         datasets = []
         self.classes = set()
+        self.samples_library = SamplesLibrary(path_to_elements_list)
         for f in files:
-            ds = CTAPEDataset(f, path_to_elements_list, transform = self._transform, wl_filter=wl_filter)
+            #print(f.split(os.sep)[-1])
+            ds = CTAPEDataset(f, self.samples_library, transform=self._transform, wl_filter=wl_filter)
             self.classes.update(ds.classes)
+            #print(ds.classes)
             datasets.append(ds)
 
         super().__init__(datasets)
-
 
     @property
     def transform(self):
@@ -223,4 +371,3 @@ class MultiFileDataset(ConcatDataset):
         self._transform = value
         for d in self.datasets:
             d.transform = self._transform
-
