@@ -46,6 +46,7 @@ class Sample(object):
         self.elements = []
         self.proportions = []
         self.id = str(id)
+        self.info = ""
 
     def validate(self):
         assert len(self.elements) == len(self.proportions)
@@ -181,8 +182,10 @@ class CTAPEDataset(Dataset):
         self.wl_filter = wl_filter
         self.transform = transform
         xl = pd.ExcelFile(path_to_xlsx)
+        self.current_sheet = path_to_xlsx.split(os.sep)[-1]
         for sheet_name in xl.sheet_names:
             print("Sheet: ",sheet_name)
+            self.current_sheet += " " + sheet_name
             df = xl.parse(sheet_name)
             parts = self.split(df)
             for i, p in enumerate(parts):
@@ -227,6 +230,8 @@ class CTAPEDataset(Dataset):
                 # assert not s_id in self.items, s_id
                 values = self.extract_values_to_first_empty_line(df.iloc[wl_row_num + 1:, i + 1])
                 h = min(wl.shape[0], values.shape[0])
+                if h < 2:
+                    raise ValueError("Values not found",s_id)
                 spectre = pd.concat([wl[:h], values[:h]], axis=1)
                 #spectre = pd.concat([wl, values], axis=1)
                 spectre = self.spectre2array(spectre)
