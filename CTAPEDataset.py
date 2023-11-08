@@ -182,7 +182,7 @@ class CTAPEDataset(Dataset):
         self.transform = transform
         xl = pd.ExcelFile(path_to_xlsx)
         for sheet_name in xl.sheet_names:
-            print(sheet_name)
+            print("Sheet: ",sheet_name)
             df = xl.parse(sheet_name)
             parts = self.split(df)
             for i, p in enumerate(parts):
@@ -190,7 +190,7 @@ class CTAPEDataset(Dataset):
                     if not p.empty:
                         self.parse(p)
                 except Exception as e:
-                    print(f"part {i} skipped because of :v{e}")
+                    print(f"part {i} skipped because of : {e}")
                     continue
         xl.close()
 
@@ -226,7 +226,9 @@ class CTAPEDataset(Dataset):
             if self.is_id_accepted(s_id):
                 # assert not s_id in self.items, s_id
                 values = self.extract_values_to_first_empty_line(df.iloc[wl_row_num + 1:, i + 1])
-                spectre = pd.concat([wl, values], axis=1)
+                h = min(wl.shape[0], values.shape[0])
+                spectre = pd.concat([wl[:h], values[:h]], axis=1)
+                #spectre = pd.concat([wl, values], axis=1)
                 spectre = self.spectre2array(spectre)
                 self.items.append([s_id, spectre])
 
@@ -354,7 +356,7 @@ class MultiFileDataset(ConcatDataset):
         self.classes = set()
         self.samples_library = SamplesLibrary(path_to_elements_list)
         for f in files:
-            #print(f.split(os.sep)[-1])
+            print("File: ", f.split(os.sep)[-1])
             ds = CTAPEDataset(f, self.samples_library, transform=self._transform, wl_filter=wl_filter)
             self.classes.update(ds.classes)
             #print(ds.classes)
