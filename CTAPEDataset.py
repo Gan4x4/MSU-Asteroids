@@ -8,6 +8,8 @@ import re
 import math
 from tqdm import tqdm
 import os
+from pathlib import Path
+import pickle
 
 
 class Sample(object):
@@ -31,14 +33,14 @@ class Sample(object):
                 else:
                     cls = row[f"Class{num}"]
                     proportion = row[f"W{num},%"]
-                if not isinstance(cls, str) or len(cls) < 1 :
+                if not isinstance(cls, str) or len(cls) < 1:
                     break
                 else:
                     inst.elements.append(cls)
                     inst.proportions.append(float(proportion))
 
         if len(inst.elements):
-            #print(inst.id, "cls == ", cls, inst.elements)
+            # print(inst.id, "cls == ", cls, inst.elements)
             return inst
         return None
 
@@ -51,9 +53,9 @@ class Sample(object):
     def validate(self):
         assert len(self.elements) == len(self.proportions)
         summ = sum(self.proportions)
-        if  summ > 101 or summ < 99:
+        if summ > 101 or summ < 99:
             raise ValueError(f"Invalid proportions {str(self)}")
-        #assert sum(self.proportions) == 100 ,proportions
+        # assert sum(self.proportions) == 100 ,proportions
 
     def is_mixture(self):
         return len(self.elements) > 1
@@ -64,15 +66,16 @@ class Sample(object):
             out = out + f" {e}:{self.proportions[i]} "
         return out
 
+
 class SamplesLibrary(object):
-    def __init__(self, path_to_xlsx,verbose = False):
+    def __init__(self, path_to_xlsx, verbose=False):
         self.id2sample = {}
         xl = pd.ExcelFile(path_to_xlsx)
         pbar = tqdm(xl.sheet_names)
         skipped = []
         for sheet_name in pbar:
             pbar.set_description(sheet_name)
-            #print(sheet_name)
+            # print(sheet_name)
             df = xl.parse(sheet_name)
             for index, row in df.iterrows():
                 sample = Sample.create_by_row(row)
@@ -90,17 +93,16 @@ class SamplesLibrary(object):
         pbar.set_description(f"Total {len(self.get_elements())} elements in {len(self.id2sample)} samples")
         print("Skipped", skipped)
 
-
     def register(self, sample):
         if sample.id in self.id2sample:
-            #print("Duplicate id",sample.id, "skipped")
-            raise ValueError("Duplicate id",sample.id)
+            # print("Duplicate id",sample.id, "skipped")
+            raise ValueError("Duplicate id", sample.id)
         self.id2sample[sample.id] = sample
 
-    def has(self,sample_id):
+    def has(self, sample_id):
         return sample_id in self.id2sample
 
-    def get(self,sample_id):
+    def get(self, sample_id):
         if self.has(sample_id):
             return self.id2sample[sample_id]
         return None
@@ -170,21 +172,29 @@ class CTAPEDataset(Dataset):
     items = []
 
     def __init__(self, path_to_xlsx, elements_list, transform=None, wl_filter=(350, 900)):
-        # super().__init__()
-        # self.filter = self.load_filter(path_to_filter)
         if isinstance(elements_list, str):
-            #self.class2id = load_dictionary(path_to_elements_list)
             elements_list = SamplesLibrary(elements_list)
-        if isinstance(elements_list, SamplesLibrary) :
+        if isinstance(elements_list, SamplesLibrary):
             self.samples_library = elements_list
         else:
             raise ValueError("Can't load list of all elements")
         self.wl_filter = wl_filter
         self.transform = transform
+        self.current_sheet = None
+        filename, file_extension = os.path.splitext(path_to_xlsx)
+        if file_extension == ".pkl":
+            with open(path_to_xlsx, 'rb') as f:
+                self.items = pickle.load(f)
+        elif file_extension == ".xlsx":
+            self.load_from_excel(path_to_xlsx)
+        else:
+            raise ValueError(f'Invalid file type {filename + file_extension}')
+
+    def load_from_excel(self, path_to_xlsx):
         xl = pd.ExcelFile(path_to_xlsx)
         self.current_sheet = path_to_xlsx.split(os.sep)[-1]
         for sheet_name in xl.sheet_names:
-            print("Sheet: ",sheet_name)
+            print("Sheet: ", sheet_name)
             self.current_sheet += " " + sheet_name
             df = xl.parse(sheet_name)
             parts = self.split(df)
@@ -196,6 +206,10 @@ class CTAPEDataset(Dataset):
                     print(f"part {i} skipped because of : {e}")
                     continue
         xl.close()
+
+    def save(self, name="tmp.pkl"):
+        with open(name, 'wb') as f:
+            pickle.dump(self.items, f)
 
     def load_filter(self, filename):
         filter = []
@@ -223,7 +237,8 @@ class CTAPEDataset(Dataset):
         wl_row_num = self.get_wavelen_row_num(keywords)
         wl = self.extract_values_to_first_empty_line(df.iloc[wl_row_num + 1:, 0])
         if not self.is_wl_accepted(wl):
-            raise ValueError(f"Wavelength interval must include interval [{self.wl_filter[0]}, {self.wl_filter[1]}] nm ")
+            raise ValueError(
+                f"Wavelength interval must include interval [{self.wl_filter[0]}, {self.wl_filter[1]}] nm ")
         for i, s_id in enumerate(material_id_row.iloc[1:]):
             s_id = str(s_id).strip()  # + "_" + str(psf_file_name).strip()
             if self.is_id_accepted(s_id):
@@ -231,9 +246,9 @@ class CTAPEDataset(Dataset):
                 values = self.extract_values_to_first_empty_line(df.iloc[wl_row_num + 1:, i + 1])
                 h = min(wl.shape[0], values.shape[0])
                 if h < 2:
-                    raise ValueError("Values not found",s_id)
+                    raise ValueError("Values not found", s_id)
                 spectre = pd.concat([wl[:h], values[:h]], axis=1)
-                #spectre = pd.concat([wl, values], axis=1)
+                # spectre = pd.concat([wl, values], axis=1)
                 spectre = self.spectre2array(spectre)
                 self.items.append([s_id, spectre])
 
@@ -273,22 +288,22 @@ class CTAPEDataset(Dataset):
         if len(s_id) == 0 or s_id == 'nan':
             return False
         if self.samples_library.has(s_id):
-            #print("Found", s_id)
+            # print("Found", s_id)
             return True
-        #print("Not found", s_id)
+        # print("Not found", s_id)
         return False
-        #if self.sample_id_to_class(s_id) is None:
+        # if self.sample_id_to_class(s_id) is None:
         #    return False
-        #return True
+        # return True
 
     def sample_id_to_sample(self, raw_sample_id):
         s_id = str(raw_sample_id).strip()
         return self.samples_library.get(s_id)
         #
-        #for key, values in self.class2id.items():
+        # for key, values in self.class2id.items():
         #    if s_id in values:
         #        return key
-        #return None
+        # return None
 
     def is_wl_accepted(self, wl):
         """
@@ -354,8 +369,7 @@ class CTAPEDataset(Dataset):
 
 class MultiFileDataset(ConcatDataset):
     def __init__(self, path_to_xlsx_folder, path_to_elements_list, transform=None, wl_filter=(350, 900)):
-        pattern = f"{path_to_xlsx_folder}/*.xlsx"
-        files = glob(pattern)
+        files = self.find_files(path_to_xlsx_folder)
         self._transform = transform
         datasets = []
         self.classes = set()
@@ -364,10 +378,19 @@ class MultiFileDataset(ConcatDataset):
             print("File: ", f.split(os.sep)[-1])
             ds = CTAPEDataset(f, self.samples_library, transform=self._transform, wl_filter=wl_filter)
             self.classes.update(ds.classes)
-            #print(ds.classes)
+            #filename = Path(f).stem
+            #ds.save(f"data/cache/{filename}.pkl")
+            # print(ds.classes)
             datasets.append(ds)
 
         super().__init__(datasets)
+
+    def find_files(self, folder):
+        files = []
+        for ext in ["pkl", "xlsx"]:
+            pattern = f"{folder}/*.{ext}"
+            files += glob(pattern)
+        return files
 
     @property
     def transform(self):
